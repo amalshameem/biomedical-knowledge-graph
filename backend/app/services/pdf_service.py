@@ -15,18 +15,17 @@ def extract_text_from_pdf(file_bytes: bytes, filename: str = "document.pdf", chu
         return []
 
     markdown_text = ""
-    tmp_file_path = None
 
+    # 1. Primary: IBM Docling using in-memory DocumentStream (no temp files, cross-platform)
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(file_bytes)
-            tmp_file_path = tmp_file.name
-
+        import io
         from docling.document_converter import DocumentConverter
+        from docling.datamodel.base_models import DocumentStream
         from docling.datamodel.document import DocItemLabel
 
         converter = DocumentConverter()
-        result = converter.convert(tmp_file_path)
+        stream = DocumentStream(name=filename or "document.pdf", stream=io.BytesIO(file_bytes))
+        result = converter.convert(stream)
 
         allowed_labels = {
             DocItemLabel.TITLE,
@@ -40,17 +39,42 @@ def extract_text_from_pdf(file_bytes: bytes, filename: str = "document.pdf", chu
 
         markdown_text = result.document.export_to_markdown(labels=allowed_labels)
     except Exception as e:
-        logger.error(f"Docling conversion failed for {filename}: {e}", exc_info=True)
-        return []
-    finally:
-        if tmp_file_path and os.path.exists(tmp_file_path):
-            try:
-                os.remove(tmp_file_path)
-            except Exception:
-                pass
+        logger.warning(f"Docling in-memory conversion failed for {filename}: {e}. Falling back to pypdfium2 engine...")
+        # 2. Secondary: pypdfium2 fallback (robust on Windows/Mac/Linux with 0 temp file IO)
+        try:
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(file_bytes)
+            pages_text = []
+            for page in pdf:
+                tp = page.get_textpage()
+                txt = tp.get_text_range().strip()
+                if txt:
+                    pages_text.append(txt)
+            pdf.close()
+            markdown_text = "\n\n".join(pages_text)
+        except Exception as fallback_err:
+            logger.error(f"pypdfium2 fallback also failed for {filename}: {fallback_err}", exc_info=True)
+            return []
+
+    # If Docling returned empty text, try pypdfium2 extraction
+    if not markdown_text or not markdown_text.strip():
+        logger.info(f"Docling returned empty text for {filename}; attempting pypdfium2 extraction...")
+        try:
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(file_bytes)
+            pages_text = []
+            for page in pdf:
+                tp = page.get_textpage()
+                txt = tp.get_text_range().strip()
+                if txt:
+                    pages_text.append(txt)
+            pdf.close()
+            markdown_text = "\n\n".join(pages_text)
+        except Exception:
+            pass
 
     if not markdown_text or not markdown_text.strip():
-        logger.error(f"Docling extracted empty text for {filename}")
+        logger.error(f"Both Docling and fallback extracted empty text for {filename}")
         return []
 
 

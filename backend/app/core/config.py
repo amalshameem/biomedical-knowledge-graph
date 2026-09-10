@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     VERSION: str = "2.0.0"
     API_V1_STR: str = "/api/v1"
     
-    # SQLite / Postgres Database
-    DATABASE_URL: str = f"sqlite:///{BASE_DIR}/biomed.db"
+    # SQLite / Postgres Database (forward slashes required for Windows SQLite URIs)
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{str(BASE_DIR / 'biomed.db').replace(chr(92), '/')}")
     
     # Neo4j Database
     NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")

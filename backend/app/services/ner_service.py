@@ -120,6 +120,65 @@ def extract_entities_detailed(text: str, ner_mode: str = "advanced") -> List[Dic
     return entity_list
 
 
+SAFE_SPECIFIERS = {
+    "gene", "genes", "protein", "proteins", "mrna", "transcript", "transcripts",
+    "levels", "level", "expression", "deficiency", "concentration", "concentrations",
+    "production", "secretion", "sample", "samples", "tissue", "tissues",
+    "serum", "fecal", "circulating", "activity", "activities"
+}
+
+PROTECTED_MODIFIERS = {
+    "receptor", "receptors", "inhibitor", "inhibitors", "antagonist", "antagonists",
+    "agonist", "agonists", "ligand", "ligands", "kinase", "kinases", "complex", "complexes",
+    "antibody", "antibodies", "subunit", "subunits", "isoform", "isoforms",
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"
+}
+
+def snap_entity_to_gliner_spans(raw_entity: str, gliner_entities: List[Dict[str, Any]]) -> Tuple[str, str]:
+    """
+    Snaps an LLM-extracted entity string to the high-precision GLiNER candidate span.
+    Strips safe grammatical wrappers (gene, protein, expression, levels) while
+    strictly preserving functional biological modifiers (receptor, inhibitor, COX-1 vs COX-2).
+    Returns (snapped_entity_name, entity_type).
+    """
+    if not raw_entity or not raw_entity.strip():
+        return ("", "Unknown")
+
+    cleaned_raw = raw_entity.strip()
+    raw_lower = cleaned_raw.lower()
+
+    # 1. Exact match with a GLiNER candidate
+    for g in gliner_entities:
+        if g["text"].lower() == raw_lower:
+            return (g["text"], g["type"])
+
+    # 2. Check for GLiNER entity containment
+    for g in sorted(gliner_entities, key=lambda x: len(x["text"]), reverse=True):
+        g_text = g["text"]
+        g_lower = g_text.lower()
+        if g_lower in raw_lower:
+            pattern = r'\b' + re.escape(g_lower) + r'\b'
+            remaining = re.sub(pattern, '', raw_lower).strip()
+            remaining_words = [w.strip("-_,;:()[]") for w in remaining.split() if w.strip("-_,;:()[]")]
+
+            # If leftover words contain protected modifiers, DO NOT snap
+            has_protected = any(w in PROTECTED_MODIFIERS for w in remaining_words)
+            if has_protected:
+                inferred_type = "Receptor" if "receptor" in remaining_words else ("Drug" if "inhibitor" in remaining_words else g["type"])
+                return (cleaned_raw, inferred_type)
+
+            # If all leftover words are safe non-distinguishing specifiers, snap to GLiNER exact text
+            all_safe = all(w in SAFE_SPECIFIERS for w in remaining_words)
+            if all_safe or not remaining_words:
+                return (g_text, g["type"])
+
+    # 3. Fallback to best type match or Unknown
+    for g in gliner_entities:
+        if g["text"].lower() in raw_lower or raw_lower in g["text"].lower():
+            return (cleaned_raw, g["type"])
+    return (cleaned_raw, "Unknown")
+
 
 RELATIONSHIP_COLORS = {
     "treats": "#0d9488",                # Teal (Therapeutic efficacy)

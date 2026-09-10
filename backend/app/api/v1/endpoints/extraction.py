@@ -4,7 +4,7 @@ import time
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from app.services.ner_service import (
     get_relationship_color,
     sanitize_entity_name,
     normalize_to_basic_type,
+    snap_entity_to_gliner_spans,
     BLACKLISTED_ENTITIES
 )
 
@@ -96,15 +97,49 @@ def run_extraction_pipeline_sync(
         for doc in project.documents:
             try:
                 file_bytes = None
+
+                # Strategy 1: Direct file_path
                 if doc.file_path and os.path.exists(doc.file_path):
-                    with open(doc.file_path, "rb") as f:
-                        file_bytes = f.read()
-                else:
-                    safe_doc_name = os.path.basename((doc.filename or "").replace("\\", "/"))
-                    alt_path = UPLOAD_DIR / project_id / safe_doc_name
-                    if alt_path.exists():
-                        with open(alt_path, "rb") as f:
+                    try:
+                        with open(doc.file_path, "rb") as f:
                             file_bytes = f.read()
+                    except Exception:
+                        pass
+
+                # Strategy 2: UPLOAD_DIR with sanitized filename
+                if not file_bytes:
+                    clean_fname = os.path.basename((doc.filename or "").replace("\\", "/"))
+                    alt_path = UPLOAD_DIR / project_id / clean_fname
+                    if alt_path.exists():
+                        try:
+                            with open(alt_path, "rb") as f:
+                                file_bytes = f.read()
+                        except Exception:
+                            pass
+
+                # Strategy 3: UPLOAD_DIR with sanitized basename of file_path
+                if not file_bytes and doc.file_path:
+                    clean_pname = os.path.basename(doc.file_path.replace("\\", "/"))
+                    alt_path2 = UPLOAD_DIR / project_id / clean_pname
+                    if alt_path2.exists():
+                        try:
+                            with open(alt_path2, "rb") as f:
+                                file_bytes = f.read()
+                        except Exception:
+                            pass
+
+                # Strategy 4: Fallback scan of any PDF in project directory
+                if not file_bytes:
+                    proj_dir = UPLOAD_DIR / project_id
+                    if proj_dir.exists():
+                        for pdf_candidate in proj_dir.glob("*.pdf"):
+                            try:
+                                with open(pdf_candidate, "rb") as f:
+                                    file_bytes = f.read()
+                                    if file_bytes:
+                                        break
+                            except Exception:
+                                pass
 
                 if not file_bytes:
                     logger.error(f"Could not read PDF document from path: {doc.file_path} (filename: {doc.filename})")
