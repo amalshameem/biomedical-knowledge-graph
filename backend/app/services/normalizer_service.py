@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import Dict, Set, List, Tuple
+from typing import Dict, Set, List, Tuple, Optional
 from rapidfuzz import fuzz
 
 logger = logging.getLogger(__name__)
@@ -218,6 +218,35 @@ PROTECTED_MEDICAL_NOUNS = {
     "atherosclerosis", "arteriosclerosis", "steatohepatitis"
 }
 
+_scispacy_nlp = None
+
+
+def get_scispacy_large():
+    """
+    Lazy-load ScispaCy Large (en_core_sci_lg) singleton with AbbreviationDetector.
+    Falls back gracefully to None if model or package is not available.
+    """
+    global _scispacy_nlp
+    if _scispacy_nlp is not None:
+        return _scispacy_nlp
+
+    try:
+        import spacy
+        from scispacy.abbreviation import AbbreviationDetector
+
+        # Disable 'ner' to save memory & compute (GLiNER handles NER)
+        nlp = spacy.load("en_core_sci_lg", disable=["ner"])
+        if "abbreviation_detector" not in nlp.pipe_names:
+            nlp.add_pipe("abbreviation_detector")
+        _scispacy_nlp = nlp
+        logger.info("Successfully loaded ScispaCy Large (en_core_sci_lg) with AbbreviationDetector.")
+    except Exception as e:
+        logger.warning(f"Could not load ScispaCy Large (en_core_sci_lg): {e}. Falling back to heuristic normalization.")
+        _scispacy_nlp = None
+
+    return _scispacy_nlp
+
+
 def clean_morphology(text: str) -> str:
     """
     Cleans punctuation, Greek letters, and standardizes spacing without LLM.
@@ -225,9 +254,9 @@ def clean_morphology(text: str) -> str:
     """
     if not text:
         return ""
-    
+
     s = text.strip()
-    
+
     # Transliterate Greek symbols
     for greek_char, latin_name in GREEK_MAP.items():
         s = s.replace(greek_char, latin_name)
@@ -250,53 +279,103 @@ def clean_morphology(text: str) -> str:
     s = re.sub(r'\s+', ' ', s).strip()
     return s
 
+
+def lemmatize_biomedical_entity(text: str) -> str:
+    """
+    Uses ScispaCy Large to lemmatize biomedical phrases (e.g. 'macrophages' -> 'macrophage',
+    'antibodies' -> 'antibody', 'acute kidney injuries' -> 'acute kidney injury'),
+    while strictly protecting medical nouns (e.g. diabetes, sepsis, cirrhosis).
+    """
+    if not text:
+        return ""
+
+    cleaned = clean_morphology(text)
+    lower = cleaned.lower()
+    last_word = lower.split()[-1] if lower.split() else ""
+    if lower in PROTECTED_MEDICAL_NOUNS or last_word in PROTECTED_MEDICAL_NOUNS:
+        return cleaned
+
+    nlp = get_scispacy_large()
+    if nlp is None:
+        return cleaned
+
+    try:
+        doc = nlp(cleaned)
+        lemmatized_tokens = []
+        for token in doc:
+            tok_lower = token.text.lower()
+            if tok_lower in PROTECTED_MEDICAL_NOUNS:
+                lemmatized_tokens.append(token.text)
+            else:
+                lemmatized_tokens.append(token.lemma_)
+        result = " ".join(lemmatized_tokens).strip()
+        # Clean any spaces around hyphens introduced by tokenization
+        result = re.sub(r'\s*-\s*', '-', result)
+        return result if result else cleaned
+    except Exception:
+        return cleaned
+
+
 def extract_intra_doc_abbreviations(text_corpus: str) -> Dict[str, str]:
     """
-    Finds abbreviations defined in parentheses in the document text, e.g.:
-    'Lipocalin-2 (LCN2)' or 'Dextran Sulfate Sodium (DSS)'.
+    Finds abbreviations defined in document text using ScispaCy AbbreviationDetector,
+    with regex fallback / supplement.
+    Maps:
+      short_form.lower() -> long_form
+      long_form.lower() -> short_form
     """
     abbr_map = {}
     if not text_corpus:
         return abbr_map
 
+    # 1. ScispaCy AbbreviationDetector (parses document context with syntactic accuracy)
+    nlp = get_scispacy_large()
+    if nlp is not None:
+        try:
+            # Process up to 200,000 characters to ensure responsive performance
+            sample = text_corpus[:200000]
+            doc = nlp(sample)
+            for abrv in getattr(doc._, "abbreviations", []):
+                short_form = abrv.text.strip()
+                long_form = getattr(abrv._, "long_form", None)
+                long_text = long_form.text.strip() if long_form is not None else ""
+                if short_form and long_text and len(long_text) > len(short_form):
+                    if short_form.lower() not in {"and", "the", "for", "with"}:
+                        abbr_map[short_form.lower()] = long_text
+                        abbr_map[long_text.lower()] = short_form
+        except Exception as e:
+            logger.warning(f"ScispaCy abbreviation detector encountered warning: {e}")
+
+    # 2. Regex fallback and supplementary pattern matcher
     # Pattern: Long Form (SHORT_FORM) e.g. "Inflammatory Bowel Disease (IBD)"
-    pattern = re.compile(r'([A-Za-z0-9\-\s]{3,40})\s*\(([A-Za-z0-9\-]{2,10})\)')
+    pattern = re.compile(r'([A-Za-z0-9\-\s]{3,50})\s*\(([A-Za-z0-9\-]{2,12})\)')
     for match in pattern.finditer(text_corpus):
         long_form = match.group(1).strip()
         short_form = match.group(2).strip()
         if len(long_form) > len(short_form) and short_form.lower() not in {"and", "the", "for", "with"}:
-            abbr_map[short_form.lower()] = long_form
-            abbr_map[long_form.lower()] = short_form
-
-    # Attempt scispacy abbreviation detector if installed
-    try:
-        import spacy
-        from scispacy.abbreviation import AbbreviationDetector
-        nlp = spacy.blank("en")
-        nlp.add_pipe("abbreviation_detector")
-        doc = nlp(text_corpus[:50000])  # Sample first 50k chars
-        for abrv in doc._.abbreviations:
-            abbr_map[abrv.text.lower()] = abrv._.long_form.text
-    except Exception:
-        pass
+            if short_form.lower() not in abbr_map:
+                abbr_map[short_form.lower()] = long_form
+            if long_form.lower() not in abbr_map:
+                abbr_map[long_form.lower()] = short_form
 
     return abbr_map
+
 
 def normalize_entities_non_llm(entities: Set[str], text_context: str = "") -> Dict[str, str]:
     """
     Deterministic, fast non-LLM normalizer for biomedical entities:
-    1. ScispaCy / Heuristic Abbreviation mapping
-    2. Morphological rule-based cleaning
-    3. Authoritative dictionary / gazetteer lookup (HGNC, MeSH, ChEMBL)
-    4. Intra-document RapidFuzz string clustering (>= 0.90 similarity)
+    1. ScispaCy Large Abbreviation mapping + regex fallback
+    2. Curated gold-standard dictionary lookup (HGNC, MeSH, ChEMBL, DOID)
+    3. ScispaCy Large lemmatization and biomedical morphology cleaning
+    4. Intra-document RapidFuzz string clustering (>= 92% similarity)
     """
     if not entities:
         return {}
 
-    mapping = {}
+    mapping: Dict[str, str] = {}
     doc_abbreviations = extract_intra_doc_abbreviations(text_context)
 
-    # Step 1 & 2: Morphological + Dictionary lookup
+    # Step 1: Dictionary & Abbreviation Resolution with ScispaCy Lemmatization
     intermediate: Dict[str, str] = {}
     for ent in entities:
         if not ent or not ent.strip():
@@ -316,16 +395,36 @@ def normalize_entities_non_llm(entities: Set[str], text_context: str = "") -> Di
             if exp_lower in BIOMEDICAL_CANONICAL_DICT:
                 intermediate[raw_ent] = BIOMEDICAL_CANONICAL_DICT[exp_lower]
                 continue
-
-        # Clean morphology and check dictionary again
-        cleaned = clean_morphology(raw_ent)
-        if cleaned.lower() in BIOMEDICAL_CANONICAL_DICT:
-            intermediate[raw_ent] = BIOMEDICAL_CANONICAL_DICT[cleaned.lower()]
+            # If expanded long form has a canonical format, use it
+            intermediate[raw_ent] = expanded
             continue
 
-        intermediate[raw_ent] = cleaned
+        # ScispaCy Large biomedical lemmatization & morphological normalization
+        lemmatized = lemmatize_biomedical_entity(raw_ent)
+        lem_lower = lemmatized.lower()
+        if lem_lower in BIOMEDICAL_CANONICAL_DICT:
+            intermediate[raw_ent] = BIOMEDICAL_CANONICAL_DICT[lem_lower]
+            continue
 
-    # Step 3: RapidFuzz clustering on remaining entities within the document
+        if lem_lower in doc_abbreviations:
+            expanded = doc_abbreviations[lem_lower]
+            exp_lower = expanded.lower()
+            if exp_lower in BIOMEDICAL_CANONICAL_DICT:
+                intermediate[raw_ent] = BIOMEDICAL_CANONICAL_DICT[exp_lower]
+                continue
+            intermediate[raw_ent] = expanded
+            continue
+
+        # Clean morphology fallback
+        cleaned = clean_morphology(raw_ent)
+        clean_lower = cleaned.lower()
+        if clean_lower in BIOMEDICAL_CANONICAL_DICT:
+            intermediate[raw_ent] = BIOMEDICAL_CANONICAL_DICT[clean_lower]
+            continue
+
+        intermediate[raw_ent] = lemmatized if lemmatized else cleaned
+
+    # Step 2: RapidFuzz clustering on remaining entities within the document
     unique_canons = list(set(intermediate.values()))
     alias_clusters: Dict[str, str] = {}
 

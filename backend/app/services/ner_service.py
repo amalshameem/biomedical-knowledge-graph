@@ -73,45 +73,6 @@ def get_ner_pipeline():
             return None
     return _gliner_model
 
-def normalize_string(s: str) -> str:
-    return re.sub(r'[^a-z0-9]', '', s.lower())
-
-def get_best_ner_type(entity_text: str, chunk_entities: Dict[str, str]) -> str:
-    """
-    Finds the standard ontology type from chunk entities using exact, normalized,
-    strict partial matches, or token intersection. Defaults to 'Unknown'.
-    """
-    if not entity_text or not chunk_entities:
-        return "Unknown"
-
-    e_lower = entity_text.lower().strip()
-    if e_lower in chunk_entities:
-        return chunk_entities[e_lower]
-
-    e_norm = normalize_string(e_lower)
-
-    # 1. Exact normalized match (handles IL-10 vs IL10)
-    for ner_ent, ner_type in chunk_entities.items():
-        if normalize_string(ner_ent) == e_norm:
-            return ner_type
-
-    # 2. Strict partial match by length ratio >= 0.5
-    for ner_ent, ner_type in sorted(chunk_entities.items(), key=lambda x: len(x[0]), reverse=True):
-        if (ner_ent in e_lower and len(ner_ent) / max(len(e_lower), 1) >= 0.5) or \
-           (e_lower in ner_ent and len(e_lower) / max(len(ner_ent), 1) >= 0.5):
-            return ner_type
-
-    # 3. Word overlap for multi-word phrases (e.g. 'intestinal inflammation' -> 'inflammation')
-    e_words = set(e_lower.split())
-    for ner_ent, ner_type in sorted(chunk_entities.items(), key=lambda x: len(x[0]), reverse=True):
-        ner_words = set(ner_ent.split())
-        overlap = e_words.intersection(ner_words)
-        meaningful_overlap = [w for w in overlap if len(w) > 3]
-        if meaningful_overlap:
-            return ner_type
-
-    return "Unknown"
-
 def extract_entities_detailed(text: str, ner_mode: str = "advanced") -> List[Dict[str, Any]]:
     """
     Runs GLiNER NER on a text chunk and returns structured entity list with exact casing,
@@ -158,71 +119,7 @@ def extract_entities_detailed(text: str, ner_mode: str = "advanced") -> List[Dic
 
     return entity_list
 
-def extract_entities_from_text(text: str, ner_mode: str = "advanced") -> Dict[str, str]:
-    """
-    Runs GLiNER NER on a text chunk using chosen NER mode ('basic' or 'advanced').
-    Returns mapping from entity text (lower) to entity type.
-    """
-    detailed = extract_entities_detailed(text, ner_mode=ner_mode)
-    return {d["text"].lower(): d["type"] for d in detailed}
 
-SAFE_SPECIFIERS = {
-    "gene", "genes", "protein", "proteins", "mrna", "transcript", "transcripts",
-    "levels", "level", "expression", "deficiency", "concentration", "concentrations",
-    "production", "secretion", "sample", "samples", "tissue", "tissues",
-    "serum", "fecal", "circulating", "activity", "activities"
-}
-
-PROTECTED_MODIFIERS = {
-    "receptor", "receptors", "inhibitor", "inhibitors", "antagonist", "antagonists",
-    "agonist", "agonists", "ligand", "ligands", "kinase", "kinases", "complex", "complexes",
-    "antibody", "antibodies", "subunit", "subunits", "isoform", "isoforms",
-    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
-    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"
-}
-
-def snap_entity_to_gliner_spans(raw_entity: str, gliner_entities: List[Dict[str, Any]]) -> Tuple[str, str]:
-    """
-    Snaps an LLM-extracted entity string to the high-precision GLiNER candidate span.
-    Strips safe grammatical wrappers (gene, protein, expression, levels) while
-    strictly preserving functional biological modifiers (receptor, inhibitor, COX-1 vs COX-2).
-    Returns (snapped_entity_name, entity_type).
-    """
-    if not raw_entity or not raw_entity.strip():
-        return ("", "Unknown")
-
-    cleaned_raw = raw_entity.strip()
-    raw_lower = cleaned_raw.lower()
-
-    # 1. Exact match with a GLiNER candidate
-    for g in gliner_entities:
-        if g["text"].lower() == raw_lower:
-            return (g["text"], g["type"])
-
-    # 2. Check for GLiNER entity containment
-    for g in sorted(gliner_entities, key=lambda x: len(x["text"]), reverse=True):
-        g_text = g["text"]
-        g_lower = g_text.lower()
-        if g_lower in raw_lower:
-            # Check the leftover words
-            pattern = r'\b' + re.escape(g_lower) + r'\b'
-            remaining = re.sub(pattern, '', raw_lower).strip()
-            remaining_words = [w.strip("-_,;:()[]") for w in remaining.split() if w.strip("-_,;:()[]")]
-
-            # If leftover words contain protected modifiers (e.g. "receptor", "inhibitor", "2"), DO NOT snap
-            has_protected = any(w in PROTECTED_MODIFIERS for w in remaining_words)
-            if has_protected:
-                inferred_type = "Receptor" if "receptor" in remaining_words else ("Drug" if "inhibitor" in remaining_words else g["type"])
-                return (cleaned_raw, inferred_type)
-
-            # If all leftover words are safe non-distinguishing specifiers (or empty), snap to GLiNER exact text!
-            all_safe = all(w in SAFE_SPECIFIERS for w in remaining_words)
-            if all_safe or not remaining_words:
-                return (g_text, g["type"])
-
-    # 3. Fallback to best type match
-    gliner_dict = {g["text"].lower(): g["type"] for g in gliner_entities}
-    return (cleaned_raw, get_best_ner_type(cleaned_raw, gliner_dict))
 
 RELATIONSHIP_COLORS = {
     "treats": "#0d9488",                # Teal (Therapeutic efficacy)

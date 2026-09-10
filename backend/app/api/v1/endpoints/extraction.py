@@ -9,20 +9,18 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.core.database import get_db, SessionLocal
+from app.core.config import UPLOAD_DIR
 from app.models.sql_models import Project, Document, Chunk, Triple, GlobalSetting
 from app.models.domain import ExtractionRequest
 from app.services.pdf_service import extract_text_from_pdf, clean_and_defragment_text
-from app.services.embedded_cleaner_service import EmbeddedCleanerService
 from app.services.ner_service import (
-    extract_entities_from_text,
     extract_entities_detailed,
-    snap_entity_to_gliner_spans,
-    get_best_ner_type,
     get_relationship_color,
     sanitize_entity_name,
     normalize_to_basic_type,
     BLACKLISTED_ENTITIES
 )
+
 from app.services.llm_service import extract_triples_and_evidence_llm, normalize_rel, adapt_endpoint_for_docker
 from app.services.normalizer_service import normalize_entities_non_llm
 from app.services.pubmed_service import fetch_pubmed_ids_for_triple
@@ -97,8 +95,21 @@ def run_extraction_pipeline_sync(
 
         for doc in project.documents:
             try:
-                with open(doc.file_path, "rb") as f:
-                    file_bytes = f.read()
+                file_bytes = None
+                if doc.file_path and os.path.exists(doc.file_path):
+                    with open(doc.file_path, "rb") as f:
+                        file_bytes = f.read()
+                else:
+                    safe_doc_name = os.path.basename((doc.filename or "").replace("\\", "/"))
+                    alt_path = UPLOAD_DIR / project_id / safe_doc_name
+                    if alt_path.exists():
+                        with open(alt_path, "rb") as f:
+                            file_bytes = f.read()
+
+                if not file_bytes:
+                    logger.error(f"Could not read PDF document from path: {doc.file_path} (filename: {doc.filename})")
+                    continue
+
                 chunks = extract_text_from_pdf(file_bytes, filename=doc.filename)
                 doc.chunks_count = len(chunks)
                 db.commit()
@@ -116,7 +127,8 @@ def run_extraction_pipeline_sync(
                     full_text_corpus.append(c)
                 db.commit()
             except Exception as e:
-                logger.error(f"Docling extraction failed for {doc.filename}: {e}")
+                logger.error(f"PDF extraction failed for {doc.filename}: {e}", exc_info=True)
+
 
         total_chunks = len(all_chunks_data)
         if total_chunks == 0:

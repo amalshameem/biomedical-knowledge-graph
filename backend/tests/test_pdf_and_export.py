@@ -96,12 +96,3 @@ def test_clean_and_defragment_text():
     assert "inflammation" in cleaned_complex
     assert "amplification" in cleaned_complex
 
-def test_embedded_cleaner_service():
-    from app.services.embedded_cleaner_service import EmbeddedCleanerService
-
-    raw_input = "This 25-kDa secretory glycoprotein was initially identi fiedand puri fiedfrom neutrophil granules and is encoded byagene located at chromosome locus 9q34.11."
-    cleaned = EmbeddedCleanerService.clean_text_embedded(raw_input)
-    assert "identified" in cleaned
-    assert "purified" in cleaned
-    assert "25-kDa" in cleaned
-    assert "9q34.11" in cleaned

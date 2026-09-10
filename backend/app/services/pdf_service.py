@@ -14,13 +14,14 @@ def extract_text_from_pdf(file_bytes: bytes, filename: str = "document.pdf", chu
     if not file_bytes:
         return []
 
-    # Write to temporary file for Docling processing
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        tmp_file.write(file_bytes)
-        tmp_file_path = tmp_file.name
-
     markdown_text = ""
+    tmp_file_path = None
+
     try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(file_bytes)
+            tmp_file_path = tmp_file.name
+
         from docling.document_converter import DocumentConverter
         from docling.datamodel.document import DocItemLabel
 
@@ -39,21 +40,20 @@ def extract_text_from_pdf(file_bytes: bytes, filename: str = "document.pdf", chu
 
         markdown_text = result.document.export_to_markdown(labels=allowed_labels)
     except Exception as e:
-        logger.warning(f"Docling conversion exception: {e}. Falling back to PyMuPDF...")
-        try:
-            import fitz
-            doc = fitz.open(tmp_file_path)
-            pages = [page.get_text() for page in doc]
-            markdown_text = "\n\n".join(pages)
-        except Exception as fe:
-            logger.error(f"Fallback PDF extraction failed: {fe}")
-            return []
-    finally:
-        if os.path.exists(tmp_file_path):
-            os.remove(tmp_file_path)
-
-    if not markdown_text.strip():
+        logger.error(f"Docling conversion failed for {filename}: {e}", exc_info=True)
         return []
+    finally:
+        if tmp_file_path and os.path.exists(tmp_file_path):
+            try:
+                os.remove(tmp_file_path)
+            except Exception:
+                pass
+
+    if not markdown_text or not markdown_text.strip():
+        logger.error(f"Docling extracted empty text for {filename}")
+        return []
+
+
 
     # ---------------------------------------------------------
     # Aggressive Post-Processing

@@ -509,81 +509,8 @@ def fetch_models(provider: str, endpoint: str = "", api_key: str = "") -> List[s
 
     return unique_models
 
-def clean_chunk_text(text: str) -> str:
-    """
-    Fast regex helper to fix line break hyphenation and normalize whitespace.
-    """
-    if not text:
-        return ""
-    cleaned = re.sub(r'(\b[A-Za-z0-9]+)-\s*\n\s*([A-Za-z0-9]+\b)', r'\1\2', text)
-    cleaned = re.sub(r'\[\s*(\d+)\s*\]', r'[\1]', cleaned)
-    cleaned = re.sub(r'[ \t]+', ' ', cleaned)
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
-    return cleaned.strip()
-
-def clean_chunk_llm(text: str, endpoint: str, api_key: str, model_name: str, provider: str = "") -> str:
-    """
-    Uses LLM / micro-model to restore the raw text chunk by repairing OCR/PDF ligature
-    fragmentation and word boundary errors without alteration or summarization.
-    """
-    pre_cleaned = clean_chunk_text(text)
-    if not pre_cleaned:
-        return ""
-
-    system_prompt = (
-        "You are an expert biomedical text de-noising and restoration engine. "
-        "Your task is to restore OCR/PDF formatting errors in the provided text chunk.\n"
-        "RULES:\n"
-        "1. Fix all split ligatures (e.g. 'identi fied' -> 'identified', 'puri fied' -> 'purified', 'speci fic' -> 'specific', 'proli feration' -> 'proliferation').\n"
-        "2. Fix all concatenated words and prepositions (e.g. 'fiedand' -> 'fied and', 'fiedfrom' -> 'fied from', 'byagene' -> 'by a gene', 'encodedby' -> 'encoded by').\n"
-        "3. Preserve all scientific names, gene symbols, metrics, and chromosome loci (e.g. '25-kDa', '9q34.11', 'LCN2', 'IL-6') EXACTLY as written.\n"
-        "4. DO NOT summarize, paraphrase, or rephrase. Output the cleaned verbatim text directly without commentary or markdown code fences."
-    )
-    user_prompt = f"Text to clean:\n{pre_cleaned}\n\nCleaned output:"
-
-    call_params = resolve_litellm_model_and_params(model_name, endpoint, api_key, provider)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
-
-    for attempt in range(3):
-        try:
-            response = litellm.completion(
-                messages=messages,
-                temperature=0.1,
-                num_retries=1,
-                **call_params
-            )
-            content = response.choices[0].message.content
-            if content and content.strip():
-                return content.strip()
-            return pre_cleaned
-        except Exception as e:
-            logger.warning(f"LiteLLM cleaning error attempt {attempt+1}: {e}")
-            try:
-                clean_m = model_name.split("/")[-1] if "/" in model_name else model_name
-                fallback_base = call_params.get("api_base") or endpoint or "http://localhost:1234/v1"
-                fallback_key = call_params.get("api_key") or api_key or "not-needed"
-                client = OpenAI(
-                    base_url=fallback_base,
-                    api_key=fallback_key
-                )
-                response = client.chat.completions.create(
-                    model=clean_m,
-                    messages=messages,
-                    temperature=0.1
-                )
-                content = response.choices[0].message.content
-                if content and content.strip():
-                    return content.strip()
-            except Exception as fb_err:
-                logger.debug(f"Direct OpenAI fallback cleaning failed: {fb_err}")
-            time.sleep(0.5 * (attempt + 1))
-
-    return pre_cleaned
-
 def extract_triples_and_evidence_llm(
+
     cleaned_text: str,
     endpoint: str,
     api_key: str,

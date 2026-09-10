@@ -117,23 +117,27 @@ async def upload_documents(project_id: str, files: List[UploadFile] = File(...),
 
     saved_docs = []
     for file in files:
-        if not file.filename.lower().endswith(".pdf"):
+        if not file.filename:
+            continue
+        clean_name = os.path.basename(file.filename.replace("\\", "/"))
+        if not clean_name.lower().endswith(".pdf"):
             continue
 
-        file_path = project_dir / file.filename
+        file_path = project_dir / clean_name
         content = await file.read()
         with open(file_path, "wb") as f:
             f.write(content)
 
         doc = Document(
             project_id=project_id,
-            filename=file.filename,
+            filename=clean_name,
             file_path=str(file_path),
             file_size=len(content)
         )
         db.add(doc)
         db.commit()
         db.refresh(doc)
+
 
         saved_docs.append(DocumentInfo(
             id=doc.id,

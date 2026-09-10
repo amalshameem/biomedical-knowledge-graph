@@ -3,8 +3,8 @@ import platform
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
-if platform.system() == "Darwin":
-    os.environ["DOCLING_DEVICE"] = "cpu"
+os.environ.setdefault("DOCLING_DEVICE", "cpu")
+os.environ.setdefault("OMP_NUM_THREADS", "4")
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 UPLOAD_DIR = BASE_DIR / "uploads"
