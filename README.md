@@ -53,11 +53,7 @@
 * **Multi-Provider LLM Integration**: Connects to **LM Studio**, **Ollama** (Local & Cloud), **OpenRouter**, **Google Gemini**, **Groq**, **Anthropic**, and **OpenAI**. Dynamic model auto-discovery populates available models on key entry.
 * **Evidence Grounding**: Every extracted relationship stores the exact verbatim sentence from the source paper, enabling instant clinical validation.
 * **Interactive Cytoscape Visualizer**: Filter graph nodes by entity type (Genes, Diseases, Drugs, etc.), adjust connection degree thresholds, click nodes/edges for full provenance inspect drawers, and run physics layouts (`fcose`, `cola`, `concentric`).
-* **Multi-Format Export Bundle**: One-click download of project knowledge graphs as a `.zip` containing:
-  * Cytoscape Elements (`graph_cytoscape.json`)
-  * Standard GraphML (`graph.graphml`)
-  * Neo4j Cypher Seed Script (`seed.cypher`)
-  * Tabular Triples (`triples.csv` & `triples.json`)
+* **Multi-Format Export Bundle**: One-click download of project knowledge graphs as a `.zip` file.
 
 ---
 
@@ -159,8 +155,6 @@ BioKG/
 ├── docker-compose.yml        # Orchestration for Neo4j, Postgres, Backend, Frontend
 ├── README.md                 # Project documentation
 ├── run_dev.sh                # 1-click startup script for local development
-├── sample_data/
-│   └── biomedical_benchmark_corpus.pdf  # Sample biomedical literature PDF
 ├── backend/
 │   ├── Dockerfile
 │   ├── requirements.txt
