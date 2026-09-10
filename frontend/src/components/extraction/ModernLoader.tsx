@@ -5,22 +5,22 @@ import { ExtractionProgressEvent } from '../../types';
 interface ModernLoaderProps {
   progressEvent: ExtractionProgressEvent | null;
   projectName: string;
+  nerMode?: string;
   onBackToHub?: () => void;
 }
 
-const STAGES = [
-  { id: 'docling', label: 'Docling PDF Parsing', desc: 'Hierarchical chunking and table filtering' },
-  { id: 'ner_gliner', label: 'GLiNER Biomedical NER', desc: '35 ontology labels extraction' },
-  { id: 'llm_triples', label: 'LLM Triples & Evidence', desc: 'Strict standard relation extraction' },
-  { id: 'normalizer', label: 'Entity Normalization', desc: 'HGNC / MeSH dictionary & RapidFuzz' },
-  { id: 'pubmed', label: 'PubMed Enrichment', desc: 'NCBI Entrez verification & PMIDs' },
-  { id: 'neo4j', label: 'Neo4j Graph Persistence', desc: 'Dual-write graph store sync' },
-];
-
-export const ModernLoader: React.FC<ModernLoaderProps> = ({ progressEvent, projectName, onBackToHub }) => {
+export const ModernLoader: React.FC<ModernLoaderProps> = ({ progressEvent, projectName, nerMode, onBackToHub }) => {
   const currentStage = progressEvent?.stage || 'docling';
   const isError = currentStage === 'error';
   const progressPercent = Math.min(Math.round((progressEvent?.progress || 0.05) * 100), 100);
+  const stages = [
+    { id: 'docling', label: 'Docling PDF Parsing', desc: 'In-memory chunking, layout & reference filtering' },
+    { id: 'ner_gliner', label: 'GLiNER Biomedical NER', desc: 'Biomedical ontology extraction' },
+    { id: 'llm_triples', label: 'LLM Triples & Evidence', desc: 'Extraction mapped to 9 standard relations' },
+    { id: 'normalizer', label: 'Entity Normalization', desc: 'ScispaCy Large, HGNC/MeSH & RapidFuzz' },
+    { id: 'pubmed', label: 'PubMed Enrichment', desc: 'NCBI Entrez verification & PMIDs' },
+    { id: 'neo4j', label: 'Neo4j Graph Persistence', desc: 'Dual-write graph store sync' },
+  ];
 
   const getStageStatus = (stageId: string) => {
     if (isError) return 'pending';
@@ -106,7 +106,7 @@ export const ModernLoader: React.FC<ModernLoaderProps> = ({ progressEvent, proje
       {/* Stage Checklist */}
       {!isError && (
         <div className="w-full bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden shadow-2xs">
-          {STAGES.map((stage) => {
+          {stages.map((stage) => {
             const status = getStageStatus(stage.id);
 
             return (

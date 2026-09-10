@@ -238,6 +238,7 @@ export const App: React.FC = () => {
             <ModernLoader
               progressEvent={progressEvent}
               projectName={currentProject?.name || 'Knowledge Extraction'}
+              nerMode={currentProject?.ner_mode}
               onBackToHub={() => {
                 setView('hub');
                 loadProjects();
