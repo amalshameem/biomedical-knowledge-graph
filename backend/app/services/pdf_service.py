@@ -176,13 +176,16 @@ def clean_and_defragment_text(text: str) -> str:
     5. Preserving biomedical symbols (e.g. '25-kDa', '9q34.11', 'COX-2', 'IL-6', 'miR-21').
     """
     import unicodedata
-    import ftfy
 
     if not text or not text.strip():
         return ""
 
-    # 1. ftfy fixes text encoding & mojibake
-    s = ftfy.fix_text(text)
+    # 1. ftfy fixes text encoding & mojibake (with graceful fallback if ftfy not installed)
+    try:
+        import ftfy
+        s = ftfy.fix_text(text)
+    except ImportError:
+        s = text
 
     # 2. Unicode NFKC normalization (replaces ligatures like 'fi', 'fl', special spaces, unicode dashes)
     s = unicodedata.normalize("NFKC", s)
