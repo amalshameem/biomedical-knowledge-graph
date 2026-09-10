@@ -218,11 +218,20 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
       });
       onClose();
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      setErrorMsg(typeof detail === 'string' ? detail : 'Failed to start extraction. Please verify your LLM endpoint and files.');
+      if (err?.response?.status === 413) {
+        setErrorMsg('File too large: Uploaded PDF exceeds the maximum allowed file size (100MB).');
+      } else {
+        const detail = err?.response?.data?.detail;
+        setErrorMsg(
+          typeof detail === 'string'
+            ? detail
+            : err?.response?.data?.message || err?.message || 'Failed to start extraction. Please verify your LLM endpoint and files.'
+        );
+      }
     } finally {
       setSubmitting(false);
     }
+
   };
 
   return (

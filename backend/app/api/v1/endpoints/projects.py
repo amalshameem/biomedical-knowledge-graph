@@ -143,4 +143,8 @@ async def upload_documents(project_id: str, files: List[UploadFile] = File(...),
             created_at=doc.created_at
         ))
 
+    if not saved_docs:
+        raise HTTPException(status_code=400, detail="No valid PDF documents were uploaded. Please upload at least one .pdf file.")
+
     return saved_docs
+

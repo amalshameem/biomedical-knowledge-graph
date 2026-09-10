@@ -169,7 +169,12 @@ export const App: React.FC = () => {
       const project = await api.createProject(payload.name, payload.description, payload.ner_mode);
 
       // 2. Upload PDFs
-      await api.uploadDocuments(project.id, payload.files);
+      try {
+        await api.uploadDocuments(project.id, payload.files);
+      } catch (uploadErr) {
+        await api.deleteProject(project.id).catch(() => {});
+        throw uploadErr;
+      }
 
       // 3. Start Extraction
       await api.startExtraction(project.id, {

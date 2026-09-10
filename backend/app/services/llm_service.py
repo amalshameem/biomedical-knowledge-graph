@@ -90,6 +90,24 @@ def normalize_rel(r: str) -> str:
 
     return "associated_with"
 
+def is_in_docker() -> bool:
+    """Detect if the application is running inside a Docker container."""
+    return (
+        os.path.exists('/.dockerenv')
+        or os.environ.get('IN_DOCKER', '').lower() in ('true', '1')
+        or 'postgres:5432' in os.environ.get('DATABASE_URL', '')
+    )
+
+def adapt_endpoint_for_docker(url: str) -> str:
+    """
+    If running inside a Docker container, automatically translate 'localhost' or '127.0.0.1'
+    to 'host.docker.internal' so the container can connect to local LLM providers
+    (LM Studio on port 1234, Ollama on port 11434, etc.) running on the host machine.
+    """
+    if not url or not is_in_docker():
+        return url
+    return re.sub(r'://(localhost|127\.0\.0\.1)(:\d+)?', r'://host.docker.internal\2', url)
+
 def resolve_litellm_model_and_params(
     model_name: str,
     endpoint: str = "",
@@ -101,6 +119,7 @@ def resolve_litellm_model_and_params(
     Supports OpenRouter, Ollama (Local & Cloud), LM Studio, Anthropic, Gemini, Groq, Mistral, OpenAI, etc.
     Guarantees required credentials so LiteLLM and underlying providers execute without errors.
     """
+    endpoint = adapt_endpoint_for_docker(endpoint)
     params: Dict[str, Any] = {}
     m = (model_name or "").strip()
     if not m:
@@ -131,7 +150,8 @@ def resolve_litellm_model_and_params(
     elif "ollama" in prov_lower or "11434" in endpoint_lower or "ollama" in endpoint_lower:
         clean_model = m.replace("ollama_chat/", "").replace("ollama/", "")
         params["model"] = f"ollama_chat/{clean_model}"
-        params["api_base"] = endpoint if endpoint else "http://localhost:11434"
+        default_ollama = adapt_endpoint_for_docker("http://localhost:11434")
+        params["api_base"] = endpoint if endpoint else default_ollama
         params["api_key"] = api_key_clean if api_key_clean else "not-needed"
 
     # 4. Groq
@@ -166,8 +186,10 @@ def resolve_litellm_model_and_params(
     elif "lm studio" in prov_lower or "1234" in endpoint_lower:
         clean_model = m.replace("openai/", "")
         params["model"] = f"openai/{clean_model}"
-        params["api_base"] = endpoint if endpoint else "http://localhost:1234/v1"
+        default_lm = adapt_endpoint_for_docker("http://localhost:1234/v1")
+        params["api_base"] = endpoint if endpoint else default_lm
         params["api_key"] = api_key_clean if api_key_clean else "not-needed"
+
 
     # 9. Generic Custom OpenAI endpoint
     elif endpoint:
@@ -300,7 +322,7 @@ def fetch_models(provider: str, endpoint: str = "", api_key: str = "") -> List[s
     models: List[str] = []
     p = (provider or "").strip()
     api_key = (api_key or "").strip()
-    endpoint = (endpoint or "").strip()
+    endpoint = adapt_endpoint_for_docker((endpoint or "").strip())
 
     # Cloud providers require an API key to dynamically fetch models
     cloud_providers = ["OpenAI", "Anthropic", "Google Gemini", "Groq", "Mistral AI"]
@@ -321,7 +343,7 @@ def fetch_models(provider: str, endpoint: str = "", api_key: str = "") -> List[s
                     "https://api.ollama.com/api/tags",
                 ]
                 # Also check custom endpoint if specified and not localhost
-                if endpoint and "localhost" not in endpoint and "127.0.0.1" not in endpoint:
+                if endpoint and "localhost" not in endpoint and "127.0.0.1" not in endpoint and "host.docker.internal" not in endpoint:
                     clean_ep = re.sub(r'/(v1|api)/?$', '', endpoint.rstrip('/'))
                     cloud_urls.insert(0, f"{clean_ep}/api/tags")
                     cloud_urls.insert(1, f"{clean_ep}/v1/models")
@@ -343,7 +365,8 @@ def fetch_models(provider: str, endpoint: str = "", api_key: str = "") -> List[s
 
             # If no API key, or if cloud attempt didn't yield models, check local Ollama server
             if not models and not api_key:
-                local_ep = re.sub(r'/(v1|api)/?$', '', (endpoint or "http://localhost:11434").rstrip('/'))
+                default_ollama = adapt_endpoint_for_docker("http://localhost:11434")
+                local_ep = re.sub(r'/(v1|api)/?$', '', (endpoint or default_ollama).rstrip('/'))
                 for sub in ["/api/tags", "/v1/models"]:
                     try:
                         r = requests.get(f"{local_ep}{sub}", headers=headers, timeout=3)
@@ -361,7 +384,9 @@ def fetch_models(provider: str, endpoint: str = "", api_key: str = "") -> List[s
 
         # ── LM Studio (Local) ──────────────────────────────────────
         elif p == "LM Studio":
-            clean_ep = re.sub(r'/(v1|api/v0|models)/?$', '', (endpoint or "http://localhost:1234").rstrip('/'))
+            default_lm = adapt_endpoint_for_docker("http://localhost:1234")
+            clean_ep = re.sub(r'/(v1|api/v0|models)/?$', '', (endpoint or default_lm).rstrip('/'))
+
             for sub in ["/v1/models", "/api/v0/models", "/models"]:
                 try:
                     r = requests.get(f"{clean_ep}{sub}", timeout=3)

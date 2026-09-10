@@ -23,7 +23,7 @@ from app.services.ner_service import (
     normalize_to_basic_type,
     BLACKLISTED_ENTITIES
 )
-from app.services.llm_service import extract_triples_and_evidence_llm, normalize_rel
+from app.services.llm_service import extract_triples_and_evidence_llm, normalize_rel, adapt_endpoint_for_docker
 from app.services.normalizer_service import normalize_entities_non_llm
 from app.services.pubmed_service import fetch_pubmed_ids_for_triple
 from app.services.neo4j_service import sync_triples_to_neo4j
@@ -384,6 +384,8 @@ async def start_extraction(project_id: str, payload: ExtractionRequest, backgrou
     elif "mistral" in prov_lower:
         if not api_key:
             api_key = db_settings.get("mistral_api_key") or os.getenv("MISTRAL_API_KEY", "")
+
+    endpoint = adapt_endpoint_for_docker(endpoint)
 
     if not model_name:
         model_name = "gpt-4o-mini"
