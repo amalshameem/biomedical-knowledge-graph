@@ -13,6 +13,7 @@ class Project(Base):
     status = Column(String(50), default="created")  # created, processing, completed, failed
     provider = Column(String(100), nullable=True)
     model = Column(String(150), nullable=True)
+    ner_mode = Column(String(50), default="advanced")  # 'basic' (Disease, Gene, Protein, Drug) or 'advanced' (35 types)
     total_chunks = Column(Integer, default=0)
     total_triples = Column(Integer, default=0)
     execution_time = Column(Float, default=0.0)

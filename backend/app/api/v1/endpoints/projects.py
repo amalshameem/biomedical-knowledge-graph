@@ -23,10 +23,15 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("", response_model=ProjectResponse)
 def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+    ner_mode = (payload.ner_mode or "advanced").lower().strip()
+    if ner_mode not in ("basic", "advanced"):
+        ner_mode = "advanced"
+
     project = Project(
         name=payload.name,
         description=payload.description,
-        status="created"
+        status="created",
+        ner_mode=ner_mode
     )
     db.add(project)
     db.commit()
@@ -71,6 +76,7 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
         status=project.status,
         provider=project.provider,
         model=project.model,
+        ner_mode=project.ner_mode or "advanced",
         total_chunks=project.total_chunks,
         total_triples=project.total_triples,
         execution_time=project.execution_time,

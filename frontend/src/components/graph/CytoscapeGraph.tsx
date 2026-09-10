@@ -5,7 +5,7 @@ import fcose from 'cytoscape-fcose';
 // @ts-ignore
 import cola from 'cytoscape-cola';
 import { CytoscapeGraphData, CytoscapeNodeData, CytoscapeEdgeData } from '../../types';
-import { GraphControls, TAXONOMY_HIERARCHY, RELATIONSHIP_COLORS } from './GraphControls';
+import { GraphControls, TAXONOMY_HIERARCHY, BASIC_TAXONOMY_HIERARCHY, RELATIONSHIP_COLORS } from './GraphControls';
 import { InCanvasPopover, InCanvasPopoverState } from './NodeInspector';
 
 // Register extensions safely
@@ -151,6 +151,7 @@ interface CytoscapeGraphProps {
   onMinDegreeChange: (deg: number) => void;
   selectedType: string;
   onSelectType: (type: string) => void;
+  nerMode?: 'basic' | 'advanced';
 }
 
 export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
@@ -159,6 +160,7 @@ export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
   onMinDegreeChange,
   selectedType,
   onSelectType,
+  nerMode = 'advanced',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -170,27 +172,52 @@ export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
   const [popoverState, setPopoverState] = useState<InCanvasPopoverState | null>(null);
   const [containerDimensions, setContainerDimensions] = useState({ width: 800, height: 600 });
 
+  const currentHierarchy = nerMode === 'basic' ? BASIC_TAXONOMY_HIERARCHY : TAXONOMY_HIERARCHY;
+  const currentAllSubcats = useMemo(() => new Set(
+    Object.values(currentHierarchy).flatMap((cat) => cat.subcategories)
+  ), [currentHierarchy]);
+
   // Taxonomy Filter State: all subcategories active by default (including dynamic types)
   const dynamicAllSubcats = useMemo(() => {
-    const set = new Set<string>(ALL_SUBCATEGORIES);
+    const set = new Set<string>(currentAllSubcats);
     graphData.elements.nodes.forEach((n) => {
       const sub = n.data.sub_category || n.data.type;
-      if (sub) set.add(sub);
+      if (sub && (nerMode !== 'basic' || currentAllSubcats.has(sub))) {
+        set.add(sub);
+      }
     });
     return set;
-  }, [graphData]);
+  }, [graphData, currentAllSubcats, nerMode]);
 
   const [activeSubcategories, setActiveSubcategories] = useState<Set<string>>(dynamicAllSubcats);
 
-  // Sync activeSubcategories when new graphData arrives
+  // Relationship Filter State: all 9 relationships active by default
+  const [activeRelationships, setActiveRelationships] = useState<Set<string>>(
+    new Set(Object.keys(RELATIONSHIP_COLORS))
+  );
+
+  // Sync activeSubcategories & activeRelationships when new graphData arrives
   useEffect(() => {
     setActiveSubcategories(new Set(dynamicAllSubcats));
-  }, [dynamicAllSubcats]);
+    setActiveRelationships(new Set(Object.keys(RELATIONSHIP_COLORS)));
+  }, [dynamicAllSubcats, graphData]);
+
+  // Compute relationship counts from graphData
+  const relationshipsCount = useMemo(() => {
+    const counts: Record<string, number> = {};
+    graphData.elements.edges.forEach((e) => {
+      const rel = (e.data.relationship || '').toLowerCase().replace(/\s+/g, '_');
+      if (rel) {
+        counts[rel] = (counts[rel] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [graphData]);
 
   // Compute category/subcategory counts from graphData
   const { categoriesCount, subcategoriesCount } = useMemo(() => {
     const subcatMap: Record<string, number> = {};
-    const allKnownSubcats = Array.from(ALL_SUBCATEGORIES);
+    const allKnownSubcats = Array.from(currentAllSubcats);
 
     graphData.elements.nodes.forEach((n) => {
       const rawSub = n.data.sub_category || n.data.type || 'Unclassified';
@@ -201,7 +228,7 @@ export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
     });
 
     const catMap: Record<string, number> = {};
-    Object.entries(TAXONOMY_HIERARCHY).forEach(([catName, { subcategories }]) => {
+    Object.entries(currentHierarchy).forEach(([catName, { subcategories }]) => {
       catMap[catName] = subcategories.reduce((acc, sub) => acc + (subcatMap[sub] || 0), 0);
     });
 
@@ -209,7 +236,7 @@ export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
       categoriesCount: catMap,
       subcategoriesCount: subcatMap,
     };
-  }, [graphData]);
+  }, [graphData, currentHierarchy, currentAllSubcats]);
 
   // Track container dimensions for popover clamping
   useEffect(() => {
@@ -460,11 +487,11 @@ export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
     }
   }, [graphData]);
 
-  // Apply Subcategory & MinDegree Filtering to Cytoscape elements
+  // Apply Subcategory, Relationship & MinDegree Filtering to Cytoscape elements
   useEffect(() => {
     if (!cyRef.current) return;
     const cy = cyRef.current;
-    const allKnownSubcats = Array.from(ALL_SUBCATEGORIES);
+    const allKnownSubcats = Array.from(currentAllSubcats);
 
     cy.batch(() => {
       cy.nodes().forEach((node) => {
@@ -487,16 +514,18 @@ export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
         }
       });
 
-      // Hide edges if either endpoint is hidden
+      // Hide edges if either endpoint is hidden OR relationship is not active
       cy.edges().forEach((edge) => {
-        if (edge.source().hasClass('hidden') || edge.target().hasClass('hidden')) {
+        const rel = (edge.data('relationship') || '').toLowerCase().replace(/\s+/g, '_');
+        const isRelActive = activeRelationships.has(rel);
+        if (edge.source().hasClass('hidden') || edge.target().hasClass('hidden') || !isRelActive) {
           edge.addClass('hidden');
         } else {
           edge.removeClass('hidden');
         }
       });
     });
-  }, [activeSubcategories, minDegree]);
+  }, [activeSubcategories, activeRelationships, minDegree, currentAllSubcats]);
 
   const runLayout = (name: string) => {
     if (!cyRef.current) return;
@@ -591,6 +620,24 @@ export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
     setActiveSubcategories(new Set());
   };
 
+  // Relationship Filter Handlers
+  const handleToggleRelationship = (rel: string) => {
+    setActiveRelationships((prev) => {
+      const next = new Set(prev);
+      if (next.has(rel)) next.delete(rel);
+      else next.add(rel);
+      return next;
+    });
+  };
+
+  const handleSelectAllRelationships = () => {
+    setActiveRelationships(new Set(Object.keys(RELATIONSHIP_COLORS)));
+  };
+
+  const handleClearRelationships = () => {
+    setActiveRelationships(new Set());
+  };
+
   // Search highlighting
   useEffect(() => {
     if (!cyRef.current) return;
@@ -639,10 +686,16 @@ export const CytoscapeGraph: React.FC<CytoscapeGraphProps> = ({
         onToggleCategory={handleToggleCategory}
         onSelectAllTaxonomy={handleSelectAllTaxonomy}
         onClearTaxonomy={handleClearTaxonomy}
+        activeRelationships={activeRelationships}
+        relationshipsCount={relationshipsCount}
+        onToggleRelationship={handleToggleRelationship}
+        onSelectAllRelationships={handleSelectAllRelationships}
+        onClearRelationships={handleClearRelationships}
         onFitGraph={handleFitGraph}
         onResetLayout={handleResetLayout}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
+        nerMode={nerMode}
       />
 
       {/* In-Canvas Contextual Popover Card (Directly On Clicked Element) */}

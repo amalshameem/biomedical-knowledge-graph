@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     
     model_config = {
         "env_file": (
-            str(BASE_DIR.parent / ".env"),  # BioKG/.env (Project Root)
-            str(BASE_DIR / ".env"),         # BioKG/backend/.env
+            str(BASE_DIR.parent / ".env"),  # Root .env
+            str(BASE_DIR / ".env"),         # backend/.env
             ".env"
         ),
         "extra": "ignore"

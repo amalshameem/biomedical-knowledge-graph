@@ -22,6 +22,7 @@ class DocumentInfo(BaseModel):
 class ProjectBase(BaseModel):
     name: str
     description: Optional[str] = ""
+    ner_mode: Optional[str] = "advanced"
 
 class ProjectCreate(ProjectBase):
     pass
@@ -31,6 +32,7 @@ class ProjectResponse(ProjectBase):
     status: str
     provider: Optional[str] = None
     model: Optional[str] = None
+    ner_mode: Optional[str] = "advanced"
     total_chunks: int = 0
     total_triples: int = 0
     execution_time: float = 0.0
@@ -49,6 +51,7 @@ class ExtractionRequest(BaseModel):
     endpoint: Optional[str] = ""
     api_key: Optional[str] = ""
     model: str
+    ner_mode: Optional[str] = "advanced"
 
 class ExtractionProgressEvent(BaseModel):
     project_id: str

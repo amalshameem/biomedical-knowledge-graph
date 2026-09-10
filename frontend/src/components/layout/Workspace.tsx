@@ -115,6 +115,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             onMinDegreeChange={onMinDegreeChange}
             selectedType={selectedType}
             onSelectType={onSelectType}
+            nerMode={project.ner_mode}
           />
         )}
 

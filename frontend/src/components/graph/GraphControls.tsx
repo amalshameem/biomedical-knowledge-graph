@@ -59,6 +59,25 @@ export const TAXONOMY_HIERARCHY: Record<string, { color: string; subcategories: 
   }
 };
 
+export const BASIC_TAXONOMY_HIERARCHY: Record<string, { color: string; subcategories: string[] }> = {
+  "Diseases": {
+    color: "#2563eb",
+    subcategories: ["Disease"]
+  },
+  "Genes": {
+    color: "#ef4444",
+    subcategories: ["Gene"]
+  },
+  "Proteins": {
+    color: "#dc2626",
+    subcategories: ["Protein"]
+  },
+  "Drugs": {
+    color: "#10b981",
+    subcategories: ["Drug"]
+  }
+};
+
 interface GraphControlsProps {
   layoutName: string;
   onLayoutChange: (name: string) => void;
@@ -73,10 +92,16 @@ interface GraphControlsProps {
   onToggleCategory: (category: string, subcats: string[]) => void;
   onSelectAllTaxonomy: () => void;
   onClearTaxonomy: () => void;
+  activeRelationships?: Set<string>;
+  relationshipsCount?: Record<string, number>;
+  onToggleRelationship?: (rel: string) => void;
+  onSelectAllRelationships?: () => void;
+  onClearRelationships?: () => void;
   onFitGraph: () => void;
   onResetLayout: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  nerMode?: 'basic' | 'advanced';
 }
 
 export const GraphControls: React.FC<GraphControlsProps> = ({
@@ -93,13 +118,20 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
   onToggleCategory,
   onSelectAllTaxonomy,
   onClearTaxonomy,
+  activeRelationships,
+  relationshipsCount = {},
+  onToggleRelationship,
+  onSelectAllRelationships,
+  onClearRelationships,
   onFitGraph,
   onResetLayout,
   isFullscreen = false,
   onToggleFullscreen,
+  nerMode = 'advanced',
 }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const currentHierarchy = nerMode === 'basic' ? BASIC_TAXONOMY_HIERARCHY : TAXONOMY_HIERARCHY;
 
   const toggleCategoryExpand = (cat: string) => {
     setExpandedCategories((prev) => {
@@ -247,114 +279,177 @@ export const GraphControls: React.FC<GraphControlsProps> = ({
             </div>
           </div>
 
-          {/* Categories Tree */}
+          {/* Categories Filter (Flat for Basic, Hierarchical for Advanced) */}
           <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-xs">
-            {Object.entries(TAXONOMY_HIERARCHY).map(([categoryName, { color, subcategories }]) => {
-              const catCount = subcategories.reduce((acc, sub) => acc + (subcategoriesCount[sub] || 0), 0);
-              const isExpanded = expandedCategories.has(categoryName);
-              const activeCountInCat = subcategories.filter((s) => activeSubcategories.has(s)).length;
-              const isAllCatActive = activeCountInCat === subcategories.length;
+            {nerMode === 'basic' ? (
+              <div className="space-y-1.5">
+                {Object.entries(BASIC_TAXONOMY_HIERARCHY).map(([categoryName, { color, subcategories }]) => {
+                  const sub = subcategories[0];
+                  const isActive = activeSubcategories.has(sub);
+                  const count = subcategoriesCount[sub] || categoriesCount[categoryName] || 0;
 
-              return (
-                <div key={categoryName} className="rounded-lg border border-slate-200 bg-slate-50/70 overflow-hidden">
-                  {/* Category Header Row */}
-                  <div className="flex items-center justify-between p-2 hover:bg-slate-100 transition-colors">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <button
-                        onClick={() => toggleCategoryExpand(categoryName)}
-                        className="p-0.5 text-slate-500 hover:text-slate-800 transition-colors"
-                      >
-                        {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                      </button>
-                      <button
-                        onClick={() => onToggleCategory(categoryName, subcategories)}
-                        className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
-                          isAllCatActive
-                            ? 'bg-indigo-600 border-indigo-600 text-white'
-                            : activeCountInCat > 0
-                            ? 'bg-indigo-100 border-indigo-400 text-indigo-700'
-                            : 'bg-white border-slate-300'
-                        }`}
-                      >
-                        {isAllCatActive && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                        {!isAllCatActive && activeCountInCat > 0 && <span className="w-1.5 h-1.5 bg-indigo-600 rounded-xs" />}
-                      </button>
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0 border border-slate-300"
-                        style={{ backgroundColor: color }}
-                      />
-                      <span className="font-semibold text-slate-800 text-xs truncate">
-                        {categoryName}
+                  return (
+                    <label
+                      key={categoryName}
+                      className="flex items-center justify-between p-2 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-slate-100 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isActive}
+                          onChange={() => onToggleSubcategory(sub)}
+                          className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0 border border-slate-300"
+                          style={{ backgroundColor: color }}
+                        />
+                        <span className="font-semibold text-slate-800 text-xs truncate">
+                          {categoryName}
+                        </span>
+                      </div>
+
+                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600">
+                        {count}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              Object.entries(currentHierarchy).map(([categoryName, { color, subcategories }]) => {
+                const catCount = subcategories.reduce((acc, sub) => acc + (subcategoriesCount[sub] || 0), 0);
+                const isExpanded = expandedCategories.has(categoryName);
+                const activeCountInCat = subcategories.filter((s) => activeSubcategories.has(s)).length;
+                const isAllCatActive = activeCountInCat === subcategories.length;
+
+                return (
+                  <div key={categoryName} className="rounded-lg border border-slate-200 bg-slate-50/70 overflow-hidden">
+                    {/* Category Header Row */}
+                    <div className="flex items-center justify-between p-2 hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          onClick={() => toggleCategoryExpand(categoryName)}
+                          className="p-0.5 text-slate-500 hover:text-slate-800 transition-colors"
+                        >
+                          {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          onClick={() => onToggleCategory(categoryName, subcategories)}
+                          className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                            isAllCatActive
+                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              : activeCountInCat > 0
+                              ? 'bg-indigo-100 border-indigo-400 text-indigo-700'
+                              : 'bg-white border-slate-300'
+                          }`}
+                        >
+                          {isAllCatActive && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          {!isAllCatActive && activeCountInCat > 0 && <span className="w-1.5 h-1.5 bg-indigo-600 rounded-xs" />}
+                        </button>
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0 border border-slate-300"
+                          style={{ backgroundColor: color }}
+                        />
+                        <span className="font-semibold text-slate-800 text-xs truncate">
+                          {categoryName}
+                        </span>
+                      </div>
+
+                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-600">
+                        {catCount}
                       </span>
                     </div>
 
-                    <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-600">
-                      {catCount}
-                    </span>
-                  </div>
+                    {/* Sub-categories List */}
+                    {isExpanded && (
+                      <div className="pl-7 pr-2 pb-2 pt-1 border-t border-slate-200 space-y-1 bg-white">
+                        {subcategories.map((subcat) => {
+                          const isSubActive = activeSubcategories.has(subcat);
+                          const subCount = subcategoriesCount[subcat] || 0;
 
-                  {/* Sub-categories List */}
-                  {isExpanded && (
-                    <div className="pl-7 pr-2 pb-2 pt-1 border-t border-slate-200 space-y-1 bg-white">
-                      {subcategories.map((subcat) => {
-                        const isSubActive = activeSubcategories.has(subcat);
-                        const subCount = subcategoriesCount[subcat] || 0;
-
-                        return (
-                          <label
-                            key={subcat}
-                            className="flex items-center justify-between p-1 rounded hover:bg-slate-50 cursor-pointer transition-colors text-xs"
-                          >
-                            <div className="flex items-center gap-2 truncate">
-                              <input
-                                type="checkbox"
-                                checked={isSubActive}
-                                onChange={() => onToggleSubcategory(subcat)}
-                                className="w-3.5 h-3.5 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                              />
-                              <span className="text-slate-700 font-medium truncate">
-                                {subcat}
+                          return (
+                            <label
+                              key={subcat}
+                              className="flex items-center justify-between p-1 rounded hover:bg-slate-50 cursor-pointer transition-colors text-xs"
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <input
+                                  type="checkbox"
+                                  checked={isSubActive}
+                                  onChange={() => onToggleSubcategory(subcat)}
+                                  className="w-3.5 h-3.5 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                                />
+                                <span className="text-slate-700 font-medium truncate">
+                                  {subcat}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-mono text-slate-400">
+                                {subCount}
                               </span>
-                            </div>
-                            <span className="text-[10px] font-mono text-slate-400">
-                              {subCount}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
 
-          {/* Relationship Color Legend */}
+          {/* Interactive Relationship Filter (Both Basic & Advanced) */}
           <div className="pt-2.5 border-t border-slate-200 shrink-0">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-bold text-slate-900">Relationship Legend</span>
-              <span className="text-[10px] text-slate-400 font-mono">9 Types</span>
-            </div>
-            <div className="grid grid-cols-1 gap-1 max-h-28 overflow-y-auto pr-1">
-              {Object.entries(RELATIONSHIP_COLORS).map(([key, { label, color, description }]) => (
-                <div
-                  key={key}
-                  className="flex items-center justify-between px-2 py-0.5 rounded bg-slate-50 border border-slate-200 text-[10px]"
+              <span className="text-xs font-bold text-slate-900">Relationships</span>
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  onClick={onSelectAllRelationships}
+                  className="text-indigo-600 hover:text-indigo-800 font-semibold text-[11px]"
                 >
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ backgroundColor: color }}
-                    />
-                    <span className="font-semibold text-slate-800 truncate font-mono text-[9.5px]">
-                      {label}
+                  Select All
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  onClick={onClearRelationships}
+                  className="text-slate-500 hover:text-rose-600 font-semibold text-[11px]"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto pr-1">
+              {Object.entries(RELATIONSHIP_COLORS).map(([key, { label, color }]) => {
+                const isActive = activeRelationships ? activeRelationships.has(key) : true;
+                const count = relationshipsCount ? relationshipsCount[key] || 0 : 0;
+
+                return (
+                  <label
+                    key={key}
+                    className="flex items-center justify-between px-2 py-1 rounded bg-slate-50 border border-slate-200 hover:bg-slate-100 cursor-pointer transition-colors text-xs"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={isActive}
+                        onChange={() => onToggleRelationship && onToggleRelationship(key)}
+                        className="w-3.5 h-3.5 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="font-semibold text-slate-800 truncate font-mono text-[10px]">
+                        {label}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500 font-medium px-1 rounded bg-white border border-slate-200">
+                      {count}
                     </span>
-                  </div>
-                  <span className="text-[9px] text-slate-400 truncate pl-1">
-                    {description}
-                  </span>
-                </div>
-              ))}
+                  </label>
+                );
+              })}
             </div>
           </div>
         </div>

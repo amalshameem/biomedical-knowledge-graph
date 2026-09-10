@@ -564,7 +564,8 @@ def extract_triples_and_evidence_llm(
     api_key: str,
     model_name: str,
     candidate_entities: List[str] = None,
-    provider: str = ""
+    provider: str = "",
+    ner_mode: str = "advanced"
 ) -> List[Dict[str, str]]:
     """
     Extracts biomedical relational triples with their verbatim source evidence sentence.
@@ -592,9 +593,21 @@ def extract_triples_and_evidence_llm(
             entities_list_str = ", ".join(clean_candidates[:25])
             entities_hint = f"\nVERIFIED BIOMEDICAL ENTITIES IN THIS TEXT: [{entities_list_str}]\n"
 
+    if (ner_mode or "").lower() == "basic":
+        rule1 = (
+            "1. Extract ONLY specific, named biomedical entities strictly belonging to: "
+            "Diseases, Genes, Proteins, and Drugs (e.g. 'LCN2', 'IL-6', 'Infliximab', 'Crohn\'s Disease'). "
+            "Do NOT extract pathways, tissues, cellular components, anatomical structures, or general biological concepts."
+        )
+    else:
+        rule1 = (
+            "1. Extract only specific, named biomedical entities (genes, proteins, chemicals, drugs, diseases, specific tissues, cell types). "
+            "Use exact canonical names (e.g. 'LCN2', 'IL-6', 'TNF', 'NASH', 'colitis', 'adipocytes')."
+        )
+
     user_prompt = f"""Extract relational triples and supporting evidence from the text below.{entities_hint}
 Rules:
-1. Extract only specific, named biomedical entities (genes, proteins, chemicals, drugs, diseases, specific tissues, cell types). Use exact canonical names (e.g. 'LCN2', 'IL-6', 'TNF', 'NASH', 'colitis', 'adipocytes').
+{rule1}
 2. DO NOT extract generic procedural, experimental, or abstract words as entities (e.g. DO NOT extract 'neutralization', 'knockdown', 'synthesis', 'action', 'death', 'uptake', 'human', 'biomarker', 'murine model', 'type 1', 'protein', or 'resistance').
 3. Multi-Target Decomposition: If a sentence lists multiple targets or cytokines (e.g. 'induces the synthesis of IL-1a, IL-6, IL-8, and TNF-a'), extract a separate individual triple for EACH individual target cytokine.
 4. The 'relationship' MUST be one of the following standardized terminologies ONLY:

@@ -20,8 +20,10 @@ def fetch_graph(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    ner_mode = project.ner_mode or "advanced"
+
     # 1. Try querying Neo4j
-    graph_data = get_cytoscape_graph(project_id, min_connections=min_connections, entity_type=entity_type)
+    graph_data = get_cytoscape_graph(project_id, min_connections=min_connections, entity_type=entity_type, ner_mode=ner_mode)
     
     # 2. Fallback to SQLite triples if Neo4j is empty / disconnected
     if not graph_data["elements"]["nodes"] and project.triples:
@@ -34,8 +36,8 @@ def fetch_graph(
             rel = t.relationship_name.strip()
             t1 = t.entity1_type or "Unknown"
             t2 = t.entity2_type or "Unknown"
-            tax1 = get_taxonomy_for_type(t1)
-            tax2 = get_taxonomy_for_type(t2)
+            tax1 = get_taxonomy_for_type(t1, ner_mode=ner_mode)
+            tax2 = get_taxonomy_for_type(t2, ner_mode=ner_mode)
 
             if not e1 or not e2:
                 continue

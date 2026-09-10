@@ -53,6 +53,12 @@ BIOMED_LABELS = [
     "Phenotypic Feature", "Environmental Effect"
 ]
 
+# Basic mode labels: Core biomedical entities only
+BASIC_BIOMED_LABELS = [
+    "Disease", "Gene", "Protein", "Drug"
+]
+ADVANCED_BIOMED_LABELS = BIOMED_LABELS
+
 _gliner_model = None
 
 def get_ner_pipeline():
@@ -106,10 +112,11 @@ def get_best_ner_type(entity_text: str, chunk_entities: Dict[str, str]) -> str:
 
     return "Unknown"
 
-def extract_entities_detailed(text: str) -> List[Dict[str, Any]]:
+def extract_entities_detailed(text: str, ner_mode: str = "advanced") -> List[Dict[str, Any]]:
     """
     Runs GLiNER NER on a text chunk and returns structured entity list with exact casing,
     type label, and confidence score.
+    If ner_mode is 'basic', restricts extraction strictly to: Disease, Gene, Protein, and Drug.
     """
     if not text:
         return []
@@ -120,19 +127,28 @@ def extract_entities_detailed(text: str) -> List[Dict[str, Any]]:
     if not ner_model:
         return []
 
+    is_basic = (ner_mode or "").lower() == "basic"
+    labels = BASIC_BIOMED_LABELS if is_basic else ADVANCED_BIOMED_LABELS
+
     try:
         sentences = [s.strip() for s in re.split(r'\n|(?<=[.!?])\s+', text) if s.strip()]
         for sent in sentences:
             if len(sent) < 5:
                 continue
 
-            results = ner_model.predict_entities(sent, BIOMED_LABELS, threshold=0.3)
+            results = ner_model.predict_entities(sent, labels, threshold=0.3)
             for res in results:
                 mapped = res.get("label", "").strip()
                 score = float(res.get("score", 0))
                 word = res.get("text", "").strip()
 
                 if mapped and len(word) > 2 and word.lower() not in BLACKLISTED_ENTITIES:
+                    if is_basic:
+                        basic_type = normalize_to_basic_type(word, mapped)
+                        if not basic_type:
+                            continue
+                        mapped = basic_type
+
                     k = (word.lower(), mapped)
                     if k not in seen:
                         seen.add(k)
@@ -142,12 +158,12 @@ def extract_entities_detailed(text: str) -> List[Dict[str, Any]]:
 
     return entity_list
 
-def extract_entities_from_text(text: str) -> Dict[str, str]:
+def extract_entities_from_text(text: str, ner_mode: str = "advanced") -> Dict[str, str]:
     """
-    Runs GLiNER NER on a text chunk using 35 specific biomedical labels.
+    Runs GLiNER NER on a text chunk using chosen NER mode ('basic' or 'advanced').
     Returns mapping from entity text (lower) to entity type.
     """
-    detailed = extract_entities_detailed(text)
+    detailed = extract_entities_detailed(text, ner_mode=ner_mode)
     return {d["text"].lower(): d["type"] for d in detailed}
 
 SAFE_SPECIFIERS = {
@@ -305,11 +321,88 @@ TAXONOMY_MAP = {
     "unknown": {"category": "Environmental & Other", "sub_category": "Unclassified", "color": "#94a3b8"},
 }
 
-def get_taxonomy_for_type(entity_type: str) -> Dict[str, str]:
+def normalize_to_basic_type(entity_name: str, entity_type: str = "Unknown") -> Optional[str]:
+    """
+    Normalizes any biomedical type or entity into one of strictly:
+    'Disease', 'Gene', 'Protein', or 'Drug'.
+    Returns None if the entity belongs to an excluded category
+    (e.g. cell, tissue, organ, procedure, organism, pathway, process).
+    """
+    if not entity_name or not entity_name.strip():
+        return None
+
+    name_clean = entity_name.strip()
+    name_low = name_clean.lower()
+    t_low = (entity_type or "").lower().strip()
+
+    # 1. Hard exclusions: Cells, Tissues, Anatomy, Processes, Organisms, Procedures
+    if any(ex in t_low for ex in ["cell", "tissue", "organ", "pathway", "process", "procedure", "organism"]):
+        return None
+    if any(name_low.endswith(ex) or f" {ex}" in name_low or f"{ex}s" in name_low for ex in ["cells", "cell", "tissue", "tissues", "pathway", "pathways", "procedure"]):
+        return None
+
+    # 2. Check entity_type clues
+    if any(k in t_low for k in ["disease", "syndrome", "neoplasm", "cancer", "tumor", "disorder", "pathologic", "phenotyp", "symptom"]):
+        return "Disease"
+    if any(k in t_low for k in ["gene", "nucleic", "dna", "rna", "mrna", "mirna"]):
+        return "Gene"
+    if any(k in t_low for k in ["protein", "enzyme", "receptor", "kinase", "antibody", "peptide", "macromolecular"]):
+        return "Protein"
+    if any(k in t_low for k in ["drug", "pharmacologic", "toxic", "chemical", "compound", "small molecule"]):
+        return "Drug"
+
+    # 3. Check entity_name lexical clues
+    # Drug suffixes and keywords
+    if any(name_low.endswith(sfx) for sfx in [
+        "mab", "nib", "mib", "tinib", "zomib", "ximab", "zumab", "cept", "statin",
+        "olol", "pril", "sartan", "parib", "cillin", "mycin", "floxacin", "navir",
+        "tide", "asone", "lukast", "prazole"
+    ]) or any(k in name_low for k in ["inhibitor", "antagonist", "agonist", "blocker"]):
+        return "Drug"
+
+    # Disease suffixes and keywords
+    if any(k in name_low for k in [
+        "disease", "syndrome", "colitis", "cancer", "carcinoma", "sarcoma",
+        "leukemia", "lymphoma", "infection", "inflammation", "injury", "dysfunction",
+        "deficiency", "diabetes", "arthritis", "hepatitis", "cirrhosis", "fibrosis",
+        "necrosis", "stenosis", "sclerosis"
+    ]):
+        return "Disease"
+
+    # Gene / Protein naming conventions
+    clean_sym = re.sub(r'[^a-zA-Z0-9]', '', name_clean)
+    if clean_sym.isupper() and 2 <= len(clean_sym) <= 12 and any(c.isdigit() for c in clean_sym):
+        return "Protein"
+    if clean_sym.isupper() and 2 <= len(clean_sym) <= 6:
+        return "Gene"
+
+    if "receptor" in name_low or "kinase" in name_low or "factor" in name_low:
+        return "Protein"
+    if "gene" in name_low:
+        return "Gene"
+
+    return None
+
+def get_taxonomy_for_type(entity_type: str, ner_mode: str = "advanced") -> Dict[str, str]:
     """
     Returns full category, sub_category, and standardized color for any given entity type.
+    In 'basic' mode, strictly categorizes into Diseases, Genes, Proteins, or Drugs.
     """
     t = str(entity_type).lower().strip()
+    is_basic = (ner_mode or "").lower() == "basic"
+
+    if is_basic:
+        if "disease" in t or "syndrome" in t or "neoplasm" in t or "cancer" in t or "tumor" in t:
+            return {"category": "Diseases", "sub_category": "Disease", "color": "#2563eb"}
+        elif "gene" in t or "nucleic" in t:
+            return {"category": "Genes", "sub_category": "Gene", "color": "#ef4444"}
+        elif "protein" in t or "enzyme" in t or "receptor" in t or "kinase" in t or "antibody" in t:
+            return {"category": "Proteins", "sub_category": "Protein", "color": "#dc2626"}
+        elif "drug" in t or "pharmacologic" in t or "chemical" in t or "compound" in t:
+            return {"category": "Drugs", "sub_category": "Drug", "color": "#059669"}
+        else:
+            return {"category": "Diseases", "sub_category": "Disease", "color": "#2563eb"}
+
     if t in TAXONOMY_MAP:
         return TAXONOMY_MAP[t]
 
@@ -325,9 +418,9 @@ def get_taxonomy_for_type(entity_type: str) -> Dict[str, str]:
         "color": f"#{hex_digest[:6]}"
     }
 
-def get_color_for_type(entity_type: str) -> str:
+def get_color_for_type(entity_type: str, ner_mode: str = "advanced") -> str:
     """
     Returns hex color code corresponding to the biomedical entity type.
     """
-    return get_taxonomy_for_type(entity_type)["color"]
+    return get_taxonomy_for_type(entity_type, ner_mode=ner_mode)["color"]
 

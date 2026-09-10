@@ -10,8 +10,8 @@ export const api = {
     return res.data;
   },
 
-  createProject: async (name: string, description: string = ''): Promise<Project> => {
-    const res = await axios.post(`${API_BASE}/projects`, { name, description });
+  createProject: async (name: string, description: string = '', ner_mode: string = 'advanced'): Promise<Project> => {
+    const res = await axios.post(`${API_BASE}/projects`, { name, description, ner_mode });
     return res.data;
   },
 
@@ -34,7 +34,7 @@ export const api = {
   },
 
   // Extraction & Status
-  startExtraction: async (projectId: string, payload: { provider: string; endpoint?: string; api_key?: string; model: string }): Promise<any> => {
+  startExtraction: async (projectId: string, payload: { provider: string; endpoint?: string; api_key?: string; model: string; ner_mode?: string }): Promise<any> => {
     const res = await axios.post(`${API_BASE}/projects/${projectId}/extract`, payload);
     return res.data;
   },

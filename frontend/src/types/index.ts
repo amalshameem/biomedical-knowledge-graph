@@ -24,6 +24,7 @@ export interface Project {
   status: 'created' | 'processing' | 'completed' | 'failed';
   provider?: string;
   model?: string;
+  ner_mode?: 'basic' | 'advanced';
   total_chunks: number;
   total_triples: number;
   execution_time: number;

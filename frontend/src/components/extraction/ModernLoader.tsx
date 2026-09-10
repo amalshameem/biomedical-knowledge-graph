@@ -12,7 +12,7 @@ const STAGES = [
   { id: 'docling', label: 'Docling PDF Parsing', desc: 'Hierarchical chunking and table filtering' },
   { id: 'ner_gliner', label: 'GLiNER Biomedical NER', desc: '35 ontology labels extraction' },
   { id: 'llm_triples', label: 'LLM Triples & Evidence', desc: 'Strict standard relation extraction' },
-  { id: 'normalizer', label: 'Entity Normalization', desc: 'HGNC / MeSH dictionary' },
+  { id: 'normalizer', label: 'Entity Normalization', desc: 'HGNC / MeSH dictionary & RapidFuzz' },
   { id: 'pubmed', label: 'PubMed Enrichment', desc: 'NCBI Entrez verification & PMIDs' },
   { id: 'neo4j', label: 'Neo4j Graph Persistence', desc: 'Dual-write graph store sync' },
 ];
@@ -112,8 +112,9 @@ export const ModernLoader: React.FC<ModernLoaderProps> = ({ progressEvent, proje
             return (
               <div
                 key={stage.id}
-                className={`flex items-center justify-between px-4 py-3 text-xs transition-colors ${status === 'active' ? 'bg-slate-50' : ''
-                  }`}
+                className={`flex items-center justify-between px-4 py-3 text-xs transition-colors ${
+                  status === 'active' ? 'bg-slate-50' : ''
+                }`}
               >
                 <div className="flex items-center gap-3">
                   {status === 'completed' ? (
@@ -133,12 +134,13 @@ export const ModernLoader: React.FC<ModernLoaderProps> = ({ progressEvent, proje
                   </div>
                 </div>
 
-                <span className={`text-[10px] font-mono font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${status === 'completed'
+                <span className={`text-[10px] font-mono font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${
+                  status === 'completed'
                     ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                     : status === 'active'
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-400'
-                  }`}>
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-400'
+                }`}>
                   {status}
                 </span>
               </div>

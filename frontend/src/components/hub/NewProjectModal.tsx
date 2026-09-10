@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Upload, FileText, Cpu, Sparkles, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import { X, Upload, FileText, Cpu, Sparkles, AlertCircle, Loader2, RefreshCw, Layers, CheckCircle2 } from 'lucide-react';
 import { LLMProvider } from '../../types';
 import { api } from '../../services/api';
 
@@ -14,12 +14,14 @@ interface NewProjectModalProps {
     endpoint: string;
     apiKey: string;
     model: string;
+    ner_mode: 'basic' | 'advanced';
   }) => Promise<void>;
 }
 
 export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onSubmit }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [nerMode, setNerMode] = useState<'basic' | 'advanced'>('advanced');
   const [files, setFiles] = useState<File[]>([]);
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [selectedProvider, setSelectedProvider] = useState('LM Studio');
@@ -71,6 +73,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
       setSubmitting(false);
       setCustomModel('');
       setIsCustomModel(false);
+      setNerMode('advanced');
 
       // Fetch default providers and load global settings
       Promise.all([api.getProviders(), api.getSettings()])
@@ -211,6 +214,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
         endpoint,
         apiKey,
         model: effectiveModel,
+        ner_mode: nerMode,
       });
       onClose();
     } catch (err: any) {
@@ -331,6 +335,37 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClos
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Extraction Mode */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Extraction Mode
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setNerMode('basic')}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all text-center ${
+                  nerMode === 'basic'
+                    ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
+                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                Basic
+              </button>
+              <button
+                type="button"
+                onClick={() => setNerMode('advanced')}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all text-center ${
+                  nerMode === 'advanced'
+                    ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
+                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                Advance
+              </button>
+            </div>
           </div>
 
           {/* LLM Provider Configuration */}

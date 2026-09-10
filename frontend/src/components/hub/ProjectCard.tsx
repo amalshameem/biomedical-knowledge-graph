@@ -69,6 +69,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onOpen, onDel
             <Network className="w-3.5 h-3.5" />
           </div>
           <div className="flex items-center gap-1.5">
+            {project.ner_mode === 'basic' ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                Basic NER
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                Advanced NER
+              </span>
+            )}
             {getStatusBadge()}
             <button
               type="button"

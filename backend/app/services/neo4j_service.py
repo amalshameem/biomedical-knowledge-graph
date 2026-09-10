@@ -5,7 +5,7 @@ from app.services.ner_service import get_color_for_type, get_taxonomy_for_type, 
 
 logger = logging.getLogger(__name__)
 
-def sync_triples_to_neo4j(project_id: str, triples: List[Dict[str, Any]]) -> bool:
+def sync_triples_to_neo4j(project_id: str, triples: List[Dict[str, Any]], ner_mode: str = "advanced") -> bool:
     """
     Writes triples into Neo4j with nodes labeled by Entity and typed directed relationships.
     Stores category, sub_category, color, evidence, pubmed_ids, and project_id as properties.
@@ -19,6 +19,7 @@ def sync_triples_to_neo4j(project_id: str, triples: List[Dict[str, Any]]) -> boo
     UNWIND $triples AS row
     MERGE (e1:Entity {name: row.entity1, project_id: $project_id})
     ON CREATE SET 
+        e1.canonical_name = row.entity1,
         e1.type = row.entity1_type,
         e1.category = row.category1,
         e1.sub_category = row.sub_category1,
@@ -32,6 +33,7 @@ def sync_triples_to_neo4j(project_id: str, triples: List[Dict[str, Any]]) -> boo
 
     MERGE (e2:Entity {name: row.entity2, project_id: $project_id})
     ON CREATE SET 
+        e2.canonical_name = row.entity2,
         e2.type = row.entity2_type,
         e2.category = row.category2,
         e2.sub_category = row.sub_category2,
@@ -59,8 +61,8 @@ def sync_triples_to_neo4j(project_id: str, triples: List[Dict[str, Any]]) -> boo
             continue
         type1 = t.get("entity1_type", "Unknown")
         type2 = t.get("entity2_type", "Unknown")
-        tax1 = get_taxonomy_for_type(type1)
-        tax2 = get_taxonomy_for_type(type2)
+        tax1 = get_taxonomy_for_type(type1, ner_mode=ner_mode)
+        tax2 = get_taxonomy_for_type(type2, ner_mode=ner_mode)
 
         payload.append({
             "entity1": e1,
@@ -103,7 +105,7 @@ def delete_project_from_neo4j(project_id: str) -> bool:
         logger.warning(f"Failed to delete Neo4j elements for project {project_id}: {e}")
         return False
 
-def get_cytoscape_graph(project_id: str, min_connections: int = 1, entity_type: Optional[str] = None) -> Dict[str, Any]:
+def get_cytoscape_graph(project_id: str, min_connections: int = 1, entity_type: Optional[str] = None, ner_mode: str = "advanced") -> Dict[str, Any]:
     """
     Queries Neo4j (or returns formatted JSON) for Cytoscape.js rendering with categories and subcategories.
     """
@@ -126,17 +128,17 @@ def get_cytoscape_graph(project_id: str, min_connections: int = 1, entity_type: 
                     e2_name = record["e2_name"]
                     rel = record["rel"]
 
-                    tax1 = get_taxonomy_for_type(record["e1_type"] or "Unknown")
-                    tax2 = get_taxonomy_for_type(record["e2_type"] or "Unknown")
+                    tax1 = get_taxonomy_for_type(record["e1_type"] or "Unknown", ner_mode=ner_mode)
+                    tax2 = get_taxonomy_for_type(record["e2_type"] or "Unknown", ner_mode=ner_mode)
 
                     if e1_name not in nodes_map:
                         nodes_map[e1_name] = {
                             "id": e1_name,
                             "label": e1_name,
                             "type": record["e1_type"] or "Unknown",
-                            "category": record.get("e1_category") or tax1["category"],
-                            "sub_category": record.get("e1_sub_category") or tax1["sub_category"],
-                            "color": record.get("e1_color") or tax1["color"],
+                            "category": tax1["category"] if ner_mode == "basic" else (record.get("e1_category") or tax1["category"]),
+                            "sub_category": tax1["sub_category"] if ner_mode == "basic" else (record.get("e1_sub_category") or tax1["sub_category"]),
+                            "color": tax1["color"] if ner_mode == "basic" else (record.get("e1_color") or tax1["color"]),
                             "degree": 0
                         }
                     nodes_map[e1_name]["degree"] += 1
@@ -146,9 +148,9 @@ def get_cytoscape_graph(project_id: str, min_connections: int = 1, entity_type: 
                             "id": e2_name,
                             "label": e2_name,
                             "type": record["e2_type"] or "Unknown",
-                            "category": record.get("e2_category") or tax2["category"],
-                            "sub_category": record.get("e2_sub_category") or tax2["sub_category"],
-                            "color": record.get("e2_color") or tax2["color"],
+                            "category": tax2["category"] if ner_mode == "basic" else (record.get("e2_category") or tax2["category"]),
+                            "sub_category": tax2["sub_category"] if ner_mode == "basic" else (record.get("e2_sub_category") or tax2["sub_category"]),
+                            "color": tax2["color"] if ner_mode == "basic" else (record.get("e2_color") or tax2["color"]),
                             "degree": 0
                         }
                     nodes_map[e2_name]["degree"] += 1

@@ -162,10 +162,11 @@ export const App: React.FC = () => {
     endpoint: string;
     apiKey: string;
     model: string;
+    ner_mode: 'basic' | 'advanced';
   }) => {
     try {
       // 1. Create Project
-      const project = await api.createProject(payload.name, payload.description);
+      const project = await api.createProject(payload.name, payload.description, payload.ner_mode);
 
       // 2. Upload PDFs
       await api.uploadDocuments(project.id, payload.files);
@@ -176,6 +177,7 @@ export const App: React.FC = () => {
         endpoint: payload.endpoint,
         api_key: payload.apiKey,
         model: payload.model,
+        ner_mode: payload.ner_mode,
       });
 
       // 4. Update UI State & Listen to Progress
