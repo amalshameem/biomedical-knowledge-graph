@@ -10,10 +10,31 @@ echo "=========================================================="
 echo "  BioKG: Biomedical Knowledge Graph Extraction System"
 echo "=========================================================="
 
-# 1. Setup Backend virtualenv if missing
+# 1. Find a safe Python version (3.10 - 3.12) to avoid incompatible edge versions
+PYTHON_CMD=""
+for cmd in python3.12 python3.11 python3.10 python3; do
+    if command -v $cmd &> /dev/null; then
+        # Check if the version is strictly between 3.9 and 3.12
+        VER=$($cmd -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+        if awk "BEGIN {exit !($VER >= 3.9 && $VER <= 3.12)}"; then
+            PYTHON_CMD=$cmd
+            break
+        fi
+    fi
+done
+
+if [ -z "$PYTHON_CMD" ]; then
+    echo "ERROR: Could not find a compatible Python version (3.9 - 3.12)."
+    echo "Please install Python 3.10, 3.11, or 3.12 to proceed."
+    exit 1
+fi
+
+echo "Using $PYTHON_CMD for the virtual environment..."
+
+# 2. Setup Backend virtualenv if missing
 if [ ! -d "$BACKEND_DIR/.venv" ]; then
     echo "Creating Python virtual environment in backend/.venv..."
-    python3.12 -m venv "$BACKEND_DIR/.venv"
+    $PYTHON_CMD -m venv "$BACKEND_DIR/.venv"
     echo "Installing backend dependencies from requirements.txt..."
     "$BACKEND_DIR/.venv/bin/pip" install --upgrade pip
     "$BACKEND_DIR/.venv/bin/pip" install -r "$BACKEND_DIR/requirements.txt"
