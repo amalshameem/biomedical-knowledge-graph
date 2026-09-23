@@ -13,7 +13,7 @@ echo "=========================================================="
 # 1. Setup Backend virtualenv if missing
 if [ ! -d "$BACKEND_DIR/.venv" ]; then
     echo "Creating Python virtual environment in backend/.venv..."
-    python3 -m venv "$BACKEND_DIR/.venv"
+    python3.12 -m venv "$BACKEND_DIR/.venv"
     echo "Installing backend dependencies from requirements.txt..."
     "$BACKEND_DIR/.venv/bin/pip" install --upgrade pip
     "$BACKEND_DIR/.venv/bin/pip" install -r "$BACKEND_DIR/requirements.txt"
